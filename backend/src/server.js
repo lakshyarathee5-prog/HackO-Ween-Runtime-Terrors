@@ -13,6 +13,20 @@ async function startServer() {
   // Connect to Database
   await connectDB();
 
+  // Auto-seed database if fresh / uninitialized
+  try {
+    const User = require('./models/User');
+    const userCount = await User.countDocuments();
+    if (userCount === 0) {
+      console.log('[Database] Database is uninitialized. Running initial auto-seeding...');
+      const seedDatabase = require('./utils/seedData');
+      await seedDatabase({ standalone: false });
+      console.log('[Database] Initial auto-seeding completed successfully.');
+    }
+  } catch (seedErr) {
+    console.warn('[Database] Auto-seeding check notice:', seedErr.message);
+  }
+
   server = http.createServer(app);
 
   // Initialize Real-Time WebSockets

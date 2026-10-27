@@ -10,6 +10,7 @@ const Delivery = require('../models/Delivery');
 const Incident = require('../models/Incident');
 const Forecast = require('../models/Forecast');
 const AuditLog = require('../models/AuditLog');
+const Notification = require('../models/Notification');
 
 function getRelativeIso(hoursFromNow) {
   const d = new Date();
@@ -17,9 +18,11 @@ function getRelativeIso(hoursFromNow) {
   return d;
 }
 
-const seedDatabase = async () => {
-  console.log('[Seed] Connecting to database...');
-  await connectDB();
+const seedDatabase = async (options = { standalone: true }) => {
+  if (options.standalone) {
+    console.log('[Seed] Connecting to database...');
+    await connectDB();
+  }
 
   try {
     console.log('[Seed] Clearing existing collections...');
@@ -32,6 +35,7 @@ const seedDatabase = async () => {
     await Incident.deleteMany({});
     await Forecast.deleteMany({});
     await AuditLog.deleteMany({});
+    await Notification.deleteMany({});
 
     console.log('[Seed] Seeding verified organisations...');
     const orgHostel = await Organisation.create({
@@ -378,7 +382,7 @@ const seedDatabase = async () => {
     });
 
     console.log('[Seed] Seeding deliveries (active & verified)...');
-    await Delivery.create([
+    const deliveries = await Delivery.create([
       {
         trackingId: 'DEL-901',
         listingId: listingAmber._id,
@@ -485,17 +489,122 @@ const seedDatabase = async () => {
       }
     ]);
 
+    console.log('[Seed] Seeding real-time notifications...');
+    await Notification.create([
+      {
+        title: 'New Surplus Food Donation Available',
+        message: 'Aryabhatta University Hostel listed 120 portions of Steamed Rice & Dal Makhani.',
+        type: 'donation_match',
+        targetRole: 'all',
+        isRead: false,
+        priority: 'high',
+        actionUrl: 'matching.html',
+        createdAt: getRelativeIso(-1.2)
+      },
+      {
+        title: 'Delivery Dispatched — HR-26-EV-409',
+        message: 'Driver Rajesh Kumar picked up 40kg fresh artisanal bread for Asha Shelter.',
+        type: 'delivery_assigned',
+        targetRole: 'admin',
+        isRead: false,
+        priority: 'normal',
+        actionUrl: 'deliveries.html',
+        createdAt: getRelativeIso(-0.5)
+      },
+      {
+        title: 'Safe-Use Window Warning (< 3 hours)',
+        message: 'Executive Thali Meals at Grand Amber Banquet requires prompt collection.',
+        type: 'imminent_expiry',
+        targetRole: 'provider',
+        isRead: false,
+        priority: 'urgent',
+        actionUrl: 'food-listings.html',
+        createdAt: getRelativeIso(-0.2)
+      },
+      {
+        title: 'Proof-of-Delivery Confirmed',
+        message: 'Sister Teresa David verified delivery of 75 meal portions at Asha Shelter.',
+        type: 'status_change',
+        targetRole: 'all',
+        isRead: true,
+        priority: 'normal',
+        actionUrl: 'deliveries.html',
+        createdAt: getRelativeIso(-2.8)
+      }
+    ]);
+
+    console.log('[Seed] Seeding operational audit logs...');
+    await AuditLog.create([
+      {
+        action: 'LISTING_CREATED',
+        performedBy: { userId: users[1]._id, name: users[1].name, role: users[1].role },
+        targetEntity: 'FoodListing',
+        targetId: listingHostel._id.toString(),
+        details: { quantity: 120, unit: 'portions', category: 'prepared_meals' },
+        createdAt: getRelativeIso(-1.5)
+      },
+      {
+        action: 'DEMAND_MATCHED',
+        performedBy: { userId: users[0]._id, name: users[0].name, role: users[0].role },
+        targetEntity: 'Delivery',
+        targetId: 'DEL-409',
+        details: { provider: orgBakery.name, recipient: orgAsha.name, portions: 40 },
+        createdAt: getRelativeIso(-1)
+      },
+      {
+        action: 'DELIVERY_COMPLETED',
+        performedBy: { userId: users[3]._id, name: users[3].name, role: users[3].role },
+        targetEntity: 'Delivery',
+        targetId: 'DEL-899',
+        details: { verifiedRecipient: 'Sister Teresa David', temperatureCelsius: 61.5 },
+        createdAt: getRelativeIso(-2.8)
+      }
+    ]);
+
+    console.log('[Seed] Seeding AI incident recovery events...');
+    await Incident.create([
+      {
+        incidentId: 'INC-2026-001',
+        deliveryId: deliveries[0]._id,
+        trackingId: 'DEL-409',
+        issueType: 'breakdown',
+        description: 'Tire puncture on Golf Course Road during transfer of 40kg artisanal loaves.',
+        originalPlan: {
+          driverName: 'Rajesh Kumar',
+          vehicleType: 'Electric Van',
+          assignedPortions: 40,
+          pickupLocation: orgBakery.address,
+          dropoffLocation: orgAsha.address,
+          originalEta: '18 mins'
+        },
+        revisedPlan: {
+          reassignedDriverName: 'Anita Sharma',
+          reassignedVehicle: 'Refrigerated Van (HR-26-EV-812)',
+          interceptLocation: 'Sector 43 Intersection',
+          revisedEta: '12 mins',
+          salvagedPortions: 40,
+          lostPortions: 0
+        },
+        salvageRatePercent: 100,
+        replanLatencyMs: 640,
+        status: 'resolved'
+      }
+    ]);
+
     console.log('✅ [Seed Complete] All collections seeded successfully with realistic Gurugram/NCR operational data.');
   } catch (err) {
     console.error('❌ [Seed Error] Failed to seed database:', err);
+    if (!options.standalone) throw err;
   } finally {
-    await disconnectDB();
-    process.exit(0);
+    if (options.standalone) {
+      await disconnectDB();
+      process.exit(0);
+    }
   }
 };
 
 if (require.main === module) {
-  seedDatabase();
+  seedDatabase({ standalone: true });
 }
 
 module.exports = seedDatabase;
