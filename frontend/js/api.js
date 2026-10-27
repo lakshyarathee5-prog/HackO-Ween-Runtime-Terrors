@@ -5,15 +5,21 @@
  */
 
 const ApiClient = (function() {
-  // Determine backend base URL dynamically
-  let baseURL = 'http://localhost:5001/api';
+  // Determine backend base URL candidates for rock-solid local & cross-origin resolution
+  const candidateUrls = [];
   if (typeof window !== 'undefined') {
     if (window.location.port === '5001') {
-      baseURL = '/api';
-    } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      baseURL = `http://${window.location.hostname}:5001/api`;
+      candidateUrls.push('/api');
+    } else if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      candidateUrls.push(`${window.location.protocol}//${window.location.hostname}:5001/api`);
     }
   }
+  // Standard development ports — 127.0.0.1 first to bypass macOS IPv6 localhost resolution delays
+  candidateUrls.push('http://127.0.0.1:5001/api');
+  candidateUrls.push('http://localhost:5001/api');
+
+  let activeBaseIndex = 0;
+  let baseURL = candidateUrls[0];
 
   const TOKEN_KEY = 'foodresq_jwt_token';
 
@@ -26,11 +32,16 @@ const ApiClient = (function() {
     else localStorage.removeItem(TOKEN_KEY);
   }
 
+  function getBaseUrl() {
+    return candidateUrls[activeBaseIndex] || baseURL;
+  }
+
   /**
-   * Core HTTP request wrapper
+   * Core HTTP request wrapper with automatic failover between localhost and 127.0.0.1
    */
-  async function request(endpoint, options = {}) {
-    const url = `${baseURL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  async function request(endpoint, options = {}, retryCandidate = true) {
+    const currentBase = getBaseUrl();
+    const url = `${currentBase}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     
     const headers = {
       'Content-Type': 'application/json',
@@ -68,7 +79,14 @@ const ApiClient = (function() {
 
       return data;
     } catch (err) {
-      // Re-throw with status or connection indicator
+      // If network error (e.g. Failed to fetch) and we have alternative candidate URLs, try the next candidate
+      if (!err.status && retryCandidate && activeBaseIndex < candidateUrls.length - 1) {
+        activeBaseIndex++;
+        console.warn(`[ApiClient] Retrying request on alternative URL: ${candidateUrls[activeBaseIndex]}`);
+        return request(endpoint, options, false);
+      }
+
+      // Re-throw with network error indicator
       if (!err.status) {
         err.isNetworkError = true;
       }
@@ -77,7 +95,17 @@ const ApiClient = (function() {
   }
 
   return {
-    baseURL,
+    get baseURL() { return getBaseUrl(); },
+    healthCheck: async () => {
+      try {
+        const res = await request('/health', { method: 'GET' });
+        return { online: true, data: res };
+      } catch (e) {
+        return { online: false, error: e.message };
+      }
+    },
+    getToken,
+    setToken,
     getToken,
     setToken,
 

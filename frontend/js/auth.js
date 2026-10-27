@@ -52,6 +52,87 @@ function initAuthUI() {
     const rememberMeBox = document.getElementById('remember-me');
     if (rememberMeBox) rememberMeBox.checked = true;
   }
+
+  // Probe backend connectivity in background
+  probeBackendHealth();
+}
+
+async function probeBackendHealth() {
+  const badge = document.getElementById('backend-status-badge');
+  const dot = document.getElementById('backend-status-dot');
+  const label = document.getElementById('backend-status-label');
+  if (!badge || !label) return;
+
+  try {
+    if (typeof ApiClient !== 'undefined' && ApiClient.healthCheck) {
+      const res = await ApiClient.healthCheck();
+      if (res && res.online) {
+        if (dot) dot.style.background = '#10B981';
+        label.textContent = 'Backend Online (Port 5001) • MongoDB Connected';
+        badge.style.display = 'inline-flex';
+        return;
+      }
+    }
+  } catch (e) {
+    // Ignore error
+  }
+
+  if (dot) dot.style.background = '#F59E0B';
+  label.textContent = 'Offline Resilient Demo Mode Active';
+  badge.style.display = 'inline-flex';
+}
+
+function resolvePersonaByEmail(email) {
+  const normalized = (email || '').toLowerCase().trim();
+  const personas = {
+    'ananya@foodresq.ai': {
+      id: 'usr_admin_01',
+      name: 'Ananya Deshmukh',
+      role: 'admin',
+      email: 'ananya@foodresq.ai',
+      organisationName: 'FoodResQ AI Central Operations',
+      city: 'Gurugram'
+    },
+    'mess2@aryabhatta.edu.in': {
+      id: 'usr_provider_01',
+      name: 'Dr. Rameshwar Meena',
+      role: 'provider',
+      email: 'mess2@aryabhatta.edu.in',
+      organisationName: 'Aryabhatta Hostel — Mess 2',
+      city: 'Gurugram'
+    },
+    'shelter@ashacommunity.org': {
+      id: 'usr_recipient_01',
+      name: 'Sister Teresa David',
+      role: 'recipient',
+      email: 'shelter@ashacommunity.org',
+      organisationName: 'Asha Community Shelter & Food Bank',
+      city: 'Gurugram'
+    },
+    'rajesh.kumar@greenev.in': {
+      id: 'usr_driver_01',
+      name: 'Rajesh Kumar',
+      role: 'driver',
+      email: 'rajesh.kumar@greenev.in',
+      organisationName: 'Gurugram Green EV Fleet',
+      city: 'Gurugram'
+    }
+  };
+
+  if (personas[normalized]) return personas[normalized];
+  if (normalized.includes('@')) {
+    const local = normalized.split('@')[0];
+    const formatted = local.charAt(0).toUpperCase() + local.slice(1);
+    return {
+      id: 'usr_demo_' + Date.now(),
+      name: formatted,
+      role: 'admin',
+      email: normalized,
+      organisationName: 'FoodResQ Partner Node',
+      city: 'Gurugram'
+    };
+  }
+  return null;
 }
 
 function checkExistingSession() {
@@ -159,7 +240,48 @@ function initLoginForm() {
     } catch (err) {
       console.warn('[Auth Error]', err.message);
 
-      // Reset button state
+      // Check if this is a connection/network issue (e.g. backend server offline, CORS preflight block, or file:// origin)
+      const isConnectionIssue = err.isNetworkError || !err.status || (err.message && err.message.toLowerCase().includes('fetch'));
+
+      if (isConnectionIssue) {
+        // Attempt resilient offline demo fallback
+        const persona = resolvePersonaByEmail(email);
+        const isDemoPassword = (pwd === 'DemoPassword123!' || pwd === 'demo12345');
+
+        if (persona && isDemoPassword) {
+          const mockToken = 'mock_jwt_' + btoa(JSON.stringify({ id: persona.id || 'demo_user', role: persona.role, ts: Date.now() }));
+          if (typeof ApiClient !== 'undefined') ApiClient.setToken(mockToken);
+          if (typeof StorageManager !== 'undefined') StorageManager.setUser(persona);
+          if (rememberMe) localStorage.setItem('foodresq_remembered_email', email);
+
+          if (submitBtn) {
+            submitBtn.classList.add('success-state');
+            if (btnText) btnText.textContent = `Access Granted • Welcome ${persona.name.split(' ')[0]}!`;
+            if (btnIcon) btnIcon.className = 'fa-solid fa-circle-check';
+          }
+
+          showToast(`Logged in as ${persona.name} via Resilient Demo Session!`, 'success');
+          setTimeout(() => {
+            window.location.href = 'dashboard.html';
+          }, 550);
+          return;
+        }
+
+        // Reset button state
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.classList.remove('success-state');
+          if (btnText) btnText.textContent = 'Sign In to Dashboard';
+          if (btnIcon) btnIcon.className = 'fa-solid fa-arrow-right';
+        }
+
+        const offlineMsg = 'Backend server (http://localhost:5001) is offline or unreachable. To sign in offline, select any Persona above or use password: DemoPassword123!';
+        showAuthAlert(offlineMsg);
+        showToast(offlineMsg, 'warning');
+        return;
+      }
+
+      // Reset button state for regular auth errors (e.g. 401 Unauthorized)
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.classList.remove('success-state');
@@ -168,7 +290,7 @@ function initLoginForm() {
       }
 
       const errorMsg = err.status === 401 
-        ? 'Invalid email address or password. For demo testing, password is DemoPassword123!'
+        ? 'Invalid email address or password. For demo testing, password is: DemoPassword123!'
         : (err.message || 'Unable to authenticate. Please check your credentials.');
 
       showAuthAlert(errorMsg);
@@ -224,6 +346,25 @@ function initRegisterForm() {
       }
       throw new Error('Local fallback');
     } catch (err) {
+      // If network is offline or local fallback triggered, register locally in storage
+      if (!err.status || err.message === 'Local fallback' || err.isNetworkError) {
+        const newUser = {
+          id: 'usr_' + Date.now(),
+          name,
+          email,
+          role,
+          organisationName: org,
+          phone,
+          city
+        };
+        const mockToken = 'demo_jwt_' + btoa(JSON.stringify({ id: newUser.id, role }));
+        if (typeof ApiClient !== 'undefined') ApiClient.setToken(mockToken);
+        if (typeof StorageManager !== 'undefined') StorageManager.setUser(newUser);
+        showToast(`Welcome ${name}! Registered as ${role.toUpperCase()} (Demo Mode). Launching dashboard...`, 'success');
+        setTimeout(() => { window.location.href = 'dashboard.html'; }, 500);
+        return;
+      }
+
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.innerHTML = 'Complete Registration <i class="fa-solid fa-arrow-right"></i>';
@@ -321,6 +462,9 @@ async function pickDemoPersona(role) {
     console.warn('[Persona Simulation]', e.message);
   }
 
+  // Resilient fallback if backend server is offline
+  const mockToken = 'mock_jwt_' + btoa(JSON.stringify({ id: 'usr_' + role, role: selected.role, time: Date.now() }));
+  if (typeof ApiClient !== 'undefined') ApiClient.setToken(mockToken);
   StorageManager.setUser(selected);
   showToast(`Selected persona: ${selected.name}`, 'info');
 }

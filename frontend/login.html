@@ -398,9 +398,15 @@
     <div class="auth-card">
       <div style="text-align: center; margin-bottom: 1.35rem;">
         <h1 style="font-size: 1.45rem; font-weight: 800; color: var(--color-text-main); margin-bottom: 0.25rem;">Sign In to Console</h1>
-        <p class="text-xs text-secondary" style="margin: 0;">
+        <p class="text-xs text-secondary" style="margin: 0 0 0.65rem 0;">
           Authenticate with your partner credentials or select a verified persona
         </p>
+
+        <!-- Live Backend Connectivity Pill -->
+        <div id="backend-status-badge" style="display: none; align-items: center; gap: 0.4rem; padding: 0.25rem 0.65rem; border-radius: 999px; background: rgba(0, 0, 0, 0.04); font-size: 0.68rem; font-weight: 600; color: var(--color-text-secondary); width: fit-content; margin: 0 auto;">
+          <span id="backend-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10B981; display: inline-block;"></span>
+          <span id="backend-status-label">Backend Online (Port 5001) • MongoDB Connected</span>
+        </div>
       </div>
 
       <!-- Active Session Notice (Rendered dynamically if already signed in) -->

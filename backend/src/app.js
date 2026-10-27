@@ -8,25 +8,22 @@ const { apiLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
 
-// Security Headers (configured to allow Leaflet OSM tiles, Chart.js, FontAwesome)
+// Security Headers (configured to allow Leaflet OSM tiles, Chart.js, FontAwesome, and cross-origin API access)
 app.use(helmet({
   contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// CORS Configuration
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:5001,http://localhost:5001').split(',').map(s => s.trim());
-
+// CORS Configuration — permissive for local development, demo sessions, and cross-port clients
 app.use(cors({
   origin: function(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
-      return callback(null, true);
-    }
-    return callback(null, true); // Permissive for local development and demo testing
+    // Permissive for local development (supports file://, localhost, 127.0.0.1, VS Code Live Server)
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 
 // Body Parsers
